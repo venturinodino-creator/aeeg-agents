@@ -8,6 +8,7 @@ const CONFIG = {
 /* ====================================================== */
 
 const $ = s => document.querySelector(s);
+const agentsLabel = n => n + (n === 1 ? ' agent' : ' agents');
 const store = {
   get(k,d){ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v);}catch{return d} },
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} }
@@ -143,7 +144,7 @@ function render(){
   const sel = STATE.repos.find(r=>r.name===STATE.selected);
   $('#heroTitle').textContent = sel? sel.name.toUpperCase().replace(/-/g,'_') : 'COMMAND GRID';
   $('#heroSub').textContent = sel? '// REPO · '+sel.lang.toUpperCase() : '// LIVE ENGINE · '+USER.toUpperCase();
-  $('#heroMeta').textContent = `${commits.length} commits · ${ag.length} agents · ${all.length} repos`;
+  $('#heroMeta').textContent = `${commits.length} commits · ${agentsLabel(ag.length)} · ${all.length} repos`;
   const agent = STATE.agent && allAgents().find(a=>a.id===STATE.agent) || null;
   drawGraph(repos, sel);
   if(agent) drawAgent(agent, sel); else drawDetail(sel);
@@ -210,7 +211,7 @@ function drawGraph(repos, sel){
       <circle class="ring" cx="${p.x}" cy="${p.y}" r="${on?17:14}" fill="#071016" stroke="${col}" stroke-width="1.5"/>
       <text x="${p.x}" y="${p.y+4}" class="node-label" style="fill:${col};font-size:10.5px">${r.commits.length}</text>
       <text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" class="node-label" style="text-anchor:${anchor}">${esc(nm)}<title>${esc(r.name)}</title></text>
-      <text x="${lx.toFixed(1)}" y="${(ly+11).toFixed(1)}" class="node-sub" style="text-anchor:${anchor}">${esc(r.lang)} · ${ago(r.pushed)}${all.length?' · '+all.length+' agents':''}</text></g>`;
+      <text x="${lx.toFixed(1)}" y="${(ly+11).toFixed(1)}" class="node-sub" style="text-anchor:${anchor}">${esc(r.lang)} · ${ago(r.pushed)}${all.length?' · '+agentsLabel(all.length):''}</text></g>`;
   });
   if(!repos.length) h+=`<text x="${cx}" y="${cy+40}" class="node-sub">no repos match</text>`;
   svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML=h+callout;
