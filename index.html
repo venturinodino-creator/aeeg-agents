@@ -39,8 +39,6 @@ button,input{font:inherit;color:inherit}
 .ctl{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .btn{background:var(--panel2);border:1px solid var(--line2);border-radius:4px;padding:5px 9px;cursor:pointer;font-size:11px}
 .btn:hover{border-color:var(--cyan);color:var(--cyan)}
-.inp{background:#03070a;border:1px solid var(--line2);border-radius:4px;padding:5px 8px;font-size:11px;width:180px}
-.inp:focus{outline:none;border-color:var(--cyan)}
 .sync{font-size:10px;color:var(--dim)}
 .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--dim);flex:none}
 .g{background:var(--green);box-shadow:0 0 6px var(--green)} .a{background:var(--amber);box-shadow:0 0 6px var(--amber)}
@@ -151,7 +149,6 @@ svg#graph{position:absolute;inset:0;width:100%;height:100%}
 }
 @media (max-width:520px){
   .app{padding:8px 16px}
-  .inp{width:130px}
 }
 </style>
 </head>
@@ -202,7 +199,7 @@ svg#graph{position:absolute;inset:0;width:100%;height:100%}
       <div class="legend">
         <div><span class="dot g"></span>Healthy · active ≤ 7d, last run passed</div>
         <div><span class="dot a"></span>Idle · quiet 7–30d / no runs</div>
-        <div><span class="dot r"></span>Failing · last agent run failed</div>
+        <div><span class="dot r"></span>Failing · a workflow's last run failed</div>
         <div><span class="dot c pulse"></span>Running now</div>
         <div><span class="dot s"></span>Dormant · &gt; 30d</div>
       </div>
@@ -240,7 +237,7 @@ const store = {
 };
 const USER = CONFIG.user;
 // all = every repo as loaded (the snapshot already holds only the AEEG repos); repos = what the page shows
-let STATE = { source:'', all:[], repos:[], selected:'__all', agent:null, filter:'', fetchedAt:null };
+let STATE = { source:'', all:[], repos:[], selected:'__all', agent:null, fetchedAt:null };
 const isDormant = r => (Date.now()-new Date(r.pushed))/DAY > 60;
 
 const DAY = 864e5;
@@ -310,26 +307,24 @@ const repoAgents = r => r.workflows.filter(w=>w.agent).map(w=>({ id:r.name+'::'+
 const allAgents = () => STATE.repos.flatMap(repoAgents);
 const agentCol = a => a.status==='running'?COL.run: a.status==='fail'?COL.fail: COL.ok;
 
-function agents(){
-  const list=allAgents();
-  const f=STATE.filter;
-  return list.filter(a=>!f || (a.name+' '+(a.repo||'')+' '+(a.role||'')).toLowerCase().includes(f));
-}
-
-/* Claude's coding work, shown beside the agents but never counted as one */
+/* Claude's coding work, shown beside the agents but never counted as one. A squash-merge commit ("… (#67)") or a
+   merge commit ("Merge pull request #67") is the same change as pull request #67, so it is listed once, as the PR. */
 function codingActivity(){
-  return STATE.repos.flatMap(r=>[
-    ...r.commits.filter(c=>c.who==='claude').map(c=>({kind:'commit', repo:r.name, title:c.msg, url:c.url, date:c.date, ref:c.sha})),
-    ...(r.pulls||[]).filter(p=>p.who==='claude').map(p=>({kind:'pr', repo:r.name, title:p.title, url:p.url, date:p.date, ref:'#'+p.num, state:p.state})),
-  ]).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  return STATE.repos.flatMap(r=>{
+    const prs=new Set((r.pulls||[]).map(p=>p.num));
+    const isPrCommit=c=>{ const m=c.msg.match(/\(#(\d+)\)\s*$|^Merge pull request #(\d+)/); return !!m && prs.has(+(m[1]||m[2])); };
+    return [
+      ...r.commits.filter(c=>c.who==='claude' && !isPrCommit(c)).map(c=>({kind:'commit', repo:r.name, title:c.msg, url:c.url, date:c.date, ref:c.sha})),
+      ...(r.pulls||[]).filter(p=>p.who==='claude').map(p=>({kind:'pr', repo:r.name, title:p.title, url:p.url, date:p.date, ref:'#'+p.num, state:p.state})),
+    ];
+  }).sort((a,b)=>new Date(b.date)-new Date(a.date));
 }
 
 /* ---------- render ---------- */
 function render(){
   STATE.repos = STATE.all;
   if(STATE.selected!=='__all' && !STATE.repos.some(r=>r.name===STATE.selected)){ STATE.selected='__all'; STATE.agent=null; }
-  const f=STATE.filter;
-  const repos=STATE.repos.filter(r=>!f || (r.name+' '+r.desc+' '+r.lang).toLowerCase().includes(f));
+  const repos=STATE.repos;
   $('#sync').textContent = syncLabel();
   $('#crumbs').textContent = USER+' / '+(STATE.selected==='__all'?'overview':STATE.selected);
 
@@ -342,7 +337,7 @@ function render(){
   // KPIs
   const all=STATE.repos, commits=all.flatMap(r=>r.commits), ai=commits.filter(c=>c.who==='claude').length;
   const wk=commits.filter(c=>Date.now()-new Date(c.date)<7*DAY).length;
-  const ag=agents();
+  const ag=allAgents();
   $('#fleetCount').textContent=all.length+' repos';
   $('#kpis').innerHTML = [
     [commits.length,'commits · 8w'], [commits.length?Math.round(ai/commits.length*100)+'%':'0%','by Claude'],
