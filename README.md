@@ -19,6 +19,8 @@ A GitHub Action in this repo runs every hour. It uses GitHub's built-in credenti
 - **Tests:** `node --test tests/*.test.mjs` (also run by the Action before each snapshot).
 
 ## Notes
+- **If a refresh fails**, the page keeps showing this browser's last good copy with a notice. If the data is more than 3 hours old it says so, which means the hourly Action is failing: check the Actions tab. If there is no copy at all, the page shows nothing rather than sample data.
+- **Coding activity** is Claude's commits and pull requests. It is shown next to the agents but is never counted as one.
 - This repo and its page are public, so anyone with the link can see them.
 - Repos with no activity in the last 60 days are listed, but their details aren't fetched.
 - Private repos aren't included, because the built-in credentials can only see public ones.
