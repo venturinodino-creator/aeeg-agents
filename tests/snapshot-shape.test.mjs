@@ -91,6 +91,41 @@ test('a name on the allow-list with no matching repo is an error, not a silent g
   assert.throws(() => onlyAllowed(fetched, ['AEEG', 'no-such-repo']), /no-such-repo/);
 });
 
+const pull = (number, over = {}) => ({ number, title: `PR ${number}`, body: '', state: 'closed', merged_at: null,
+  updated_at: '2026-10-01T10:00:00Z', created_at: '2026-10-01T09:00:00Z', html_url: `https://github.com/me/demo/pull/${number}`,
+  user: { login: 'me' }, ...over });
+
+test('a pull request written with Claude is marked, one without is not', () => {
+  const out = slim(repo, [], [], [
+    pull(1, { body: 'Adds the filter\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)' }),
+    pull(2, { body: 'Fix typo' }),
+    pull(3, { body: null }),
+  ]);
+  assert.deepEqual(out.pulls.map(p => [p.num, p.who, p.ai]), [[1, 'claude', true], [2, 'you', false], [3, 'you', false]]);
+});
+
+test('a pull request opened by a Claude login is marked', () => {
+  const out = slim(repo, [], [], [pull(4, { user: { login: 'claude[bot]' } })]);
+  assert.equal(out.pulls[0].who, 'claude');
+});
+
+test('a pull request reports open, merged or closed, with the date of its last event and a link', () => {
+  const out = slim(repo, [], [], [
+    pull(5, { state: 'open' }),
+    pull(6, { state: 'closed', merged_at: '2026-10-01T12:00:00Z' }),
+    pull(7, { state: 'closed' }),
+  ]);
+  assert.deepEqual(out.pulls.map(p => p.state), ['open', 'merged', 'closed']);
+  assert.equal(out.pulls[1].date, '2026-10-01T12:00:00Z');
+  assert.equal(out.pulls[0].date, '2026-10-01T10:00:00Z');
+  assert.deepEqual([out.pulls[0].title, out.pulls[0].author, out.pulls[0].url], ['PR 5', 'me', 'https://github.com/me/demo/pull/5']);
+});
+
+test('a repo with no pull requests has an empty list, with or without the argument', () => {
+  assert.deepEqual(slim(repo, [], [], []).pulls, []);
+  assert.deepEqual(slim(repo, [], []).pulls, []);
+});
+
 test('an allow-list that is not a non-empty list of names is refused', () => {
   for (const bad of [undefined, null, 'AEEG', [], [1], [{ name: 'AEEG' }]]) {
     assert.throws(() => onlyAllowed(fetched, bad), /allow-list/);

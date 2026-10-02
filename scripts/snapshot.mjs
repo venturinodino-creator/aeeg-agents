@@ -28,9 +28,11 @@ for (const r of list) {
   const active = (Date.now() - new Date(r.pushed_at)) / DAY <= 60;
   const commits = active ? (await gh(`/repos/${r.full_name}/commits?per_page=100&since=${since}`)) || [] : [];
   const runs    = active ? (await gh(`/repos/${r.full_name}/actions/runs?per_page=100`))?.workflow_runs || [] : [];
-  repos.push(slim(r, commits, runs));
+  const pulls   = active ? (await gh(`/repos/${r.full_name}/pulls?state=all&sort=updated&direction=desc&per_page=30`)) || [] : [];
+  repos.push(slim(r, commits, runs, pulls));
 }
 
 writeFileSync('data.json', JSON.stringify({ generatedAt: new Date().toISOString(), user: OWNER, repos }));
 const agents = repos.reduce((n, r) => n + r.workflows.filter(w => w.agent).length, 0);
-console.log(`Snapshot: ${repos.length} repos, ${repos.reduce((n, r) => n + r.commits.length, 0)} commits, ${agents} agents`);
+console.log(`Snapshot: ${repos.length} repos, ${repos.reduce((n, r) => n + r.commits.length, 0)} commits, ` +
+  `${repos.reduce((n, r) => n + r.pulls.length, 0)} pull requests, ${agents} agents`);

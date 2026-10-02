@@ -121,6 +121,11 @@ svg#graph{position:absolute;inset:0;width:100%;height:100%}
 .agents .ar{font-size:9.5px;color:var(--dim);text-align:right;white-space:nowrap}
 .agents .ad{grid-column:2/4;font-size:10px;color:var(--dim);margin-top:-4px}
 .kpis{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:10px}
+.note{margin:0;padding:8px 12px 2px;font-size:10px;color:var(--dim)}
+.act{padding:2px 12px 8px}
+.act li{align-items:start}
+.tag.pr{color:var(--cyan);border-color:#1d4a52}
+.tag.merged{color:var(--violet);border-color:#4a3c80}
 
 /* bottom ticker */
 .bottom{grid-column:2;grid-row:3;padding:0;min-width:0;overflow:hidden}
@@ -201,9 +206,14 @@ svg#graph{position:absolute;inset:0;width:100%;height:100%}
         <div><span class="dot s"></span>Dormant · &gt; 30d</div>
       </div>
     </section>
-    <section class="panel" style="flex:1">
+    <section class="panel">
       <div class="ph"><span>Agents</span><b id="agentCount">0</b></div>
       <ul class="agents" id="agents"></ul>
+    </section>
+    <section class="panel" style="flex:1">
+      <div class="ph"><span>Coding activity</span><b id="activityCount">0</b></div>
+      <p class="note">Claude's commits and pull requests. This is coding work, not a scheduled agent, and is not counted above.</p>
+      <ul class="feed act" id="activity"></ul>
     </section>
   </aside>
 
@@ -297,6 +307,14 @@ function agents(){
   return list.filter(a=>!f || (a.name+' '+(a.repo||'')+' '+(a.role||'')).toLowerCase().includes(f));
 }
 
+/* Claude's coding work, shown beside the agents but never counted as one */
+function codingActivity(){
+  return STATE.repos.flatMap(r=>[
+    ...r.commits.filter(c=>c.who==='claude').map(c=>({kind:'commit', repo:r.name, title:c.msg, url:c.url, date:c.date, ref:c.sha})),
+    ...(r.pulls||[]).filter(p=>p.who==='claude').map(p=>({kind:'pr', repo:r.name, title:p.title, url:p.url, date:p.date, ref:'#'+p.num, state:p.state})),
+  ]).sort((a,b)=>new Date(b.date)-new Date(a.date));
+}
+
 /* ---------- render ---------- */
 function render(){
   STATE.repos = STATE.all;
@@ -313,12 +331,12 @@ function render(){
   document.querySelector('#navSys li').classList.toggle('on',STATE.selected==='__all');
 
   // KPIs
-  const all=STATE.repos, commits=all.flatMap(r=>r.commits), ai=commits.filter(c=>c.ai).length;
+  const all=STATE.repos, commits=all.flatMap(r=>r.commits), ai=commits.filter(c=>c.who==='claude').length;
   const wk=commits.filter(c=>Date.now()-new Date(c.date)<7*DAY).length;
   const ag=agents();
   $('#fleetCount').textContent=all.length+' repos';
   $('#kpis').innerHTML = [
-    [commits.length,'commits · 8w'], [commits.length?Math.round(ai/commits.length*100)+'%':'0%','by agents'],
+    [commits.length,'commits · 8w'], [commits.length?Math.round(ai/commits.length*100)+'%':'0%','by Claude'],
     [wk,'commits · 7d'], [all.filter(r=>health(r)==='ok'||health(r)==='run').length+'/'+all.length,'active repos'],
     [all.reduce((s,r)=>s+r.issues,0),'open issues'], [ag.filter(a=>a.status==='fail').length,'failing agents'],
   ].map(([b,s])=>`<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
@@ -331,6 +349,14 @@ function render(){
       <span class="ad">${esc(a.repo||'—')} · ${esc(a.kind)}${a.role?' · '+esc(a.role):''}</span></li>`).join('')
     || `<li class="none"><span></span><span class="an" style="color:var(--txt)">No scheduled agents yet</span>
         <span class="ad">An agent is a GitHub workflow that runs on a schedule or by hand. None exists in the AEEG repos yet; one will appear here as soon as it is added.</span></li>`;
+
+  // coding activity: Claude's commits and pull requests, newest first (a feed, not agents)
+  const act=codingActivity(), shown=act.slice(0,14);
+  $('#activityCount').textContent=act.length;
+  $('#activity').innerHTML = shown.map(x=>`<li><span class="tag ${x.kind==='pr'?(x.state==='merged'?'merged':'pr'):'ai'}">${x.kind==='pr'?'PR '+esc(x.state):'COMMIT'}</span>
+      <span><span class="m" style="display:block"><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title)}</a></span>
+      <span class="t">${esc(x.repo)} · ${esc(x.ref)} · ${ago(x.date)}</span></span></li>`).join('')
+    || '<li><span class="t">No Claude activity in the last 8 weeks</span></li>';
 
   // hero + graph + detail
   const sel = STATE.repos.find(r=>r.name===STATE.selected);
@@ -420,7 +446,7 @@ function drawDetail(r){
   if(!r){ el.hidden=true; el.innerHTML=''; return; }
   const weeks=[...Array(8)].map((_,i)=>({i, all:0, ai:0}));
   r.commits.forEach(c=>{ const w=Math.floor((Date.now()-new Date(c.date))/(7*DAY)); if(w<8){ weeks[w].all++; if(c.ai) weeks[w].ai++; }});
-  const max=Math.max(1,...weeks.map(w=>w.all)), ai=r.commits.filter(c=>c.ai).length;
+  const max=Math.max(1,...weeks.map(w=>w.all)), ai=r.commits.filter(c=>c.who==='claude').length;
   const st=health(r);
   el.hidden=false;
   el.innerHTML=`<div class="ph"><span><span class="dot ${DOT[st]}"></span> &nbsp;${st==='run'?'running':st}</span><button class="x" id="closeD" aria-label="Close">×</button></div>
@@ -429,7 +455,7 @@ function drawDetail(r){
     <p>${esc(r.desc)||'No description — add one on GitHub.'}</p>
     <div class="stats">
       <div class="stat"><b>${r.commits.length}</b><span>commits · 8w</span></div>
-      <div class="stat"><b>${r.commits.length?Math.round(ai/r.commits.length*100):0}%</b><span>by agents</span></div>
+      <div class="stat"><b>${r.commits.length?Math.round(ai/r.commits.length*100):0}%</b><span>by Claude</span></div>
       <div class="stat"><b>${r.issues}</b><span>${r.prs==='—'?'issues + PRs':'open issues'}</span></div>
       <div class="stat"><b>${r.prs}</b><span>open PRs</span></div>
     </div>

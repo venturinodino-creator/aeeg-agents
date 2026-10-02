@@ -21,7 +21,12 @@ export function onlyAllowed(repos, allowed) {
   return repos.filter(r => on.has(r.name));
 }
 
-export function slim(r, commits, runs) {
+// Who wrote a change: Claude if the text carries a Claude marker or the author is a Claude login, an automation
+// account if it looks like one, otherwise the owner.
+const whoWrote = (text, login, name = '') => (AI_RE.test(text) || CLAUDE_RE.test(login || name)) ? 'claude'
+  : BOT_RE.test(login + ' ' + name) ? 'bot' : 'you';
+
+export function slim(r, commits, runs, pulls = []) {
   // one entry per workflow; runs arrive newest first, so each group starts with the latest run
   const wf = {}; runs.forEach(x => { (wf[x.name] ||= []).push(x); });
   const run = x => ({ status: x.status, concl: x.conclusion, date: x.updated_at, url: x.html_url, event: x.event });
@@ -32,10 +37,14 @@ export function slim(r, commits, runs) {
     issues: r.open_issues_count || 0, prs: '—',
     commits: commits.map(c => {
       const login = c.author?.login || '', name = c.commit.author?.name || '';
-      const who = (AI_RE.test(c.commit.message) || CLAUDE_RE.test(login || name)) ? 'claude'
-                : BOT_RE.test(login + ' ' + name) ? 'bot' : 'you';
+      const who = whoWrote(c.commit.message, login, name);
       return { sha: c.sha.slice(0, 7), msg: c.commit.message.split('\n')[0], date: c.commit.author?.date,
                author: login || name || '?', url: c.html_url, who, ai: who !== 'you' };
+    }),
+    pulls: pulls.map(p => {
+      const login = p.user?.login || '', who = whoWrote(`${p.title}\n${p.body || ''}`, login);
+      return { num: p.number, title: p.title, author: login || '?', url: p.html_url, who, ai: who !== 'you',
+               state: p.merged_at ? 'merged' : p.state, date: p.merged_at || p.updated_at };
     }),
     workflows: Object.entries(wf).map(([name, g]) => ({
       name, ...run(g[0]), agent: g.some(x => AGENT_EVENTS.includes(x.event)), runs: g.slice(0, RECENT_RUNS).map(run) })),
